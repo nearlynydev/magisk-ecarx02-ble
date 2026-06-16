@@ -1,6 +1,6 @@
 id=ecarx_e02_ihu717p_bt
 name=ECARX E02 IHU717P Geely/Knewstar Bluetooth PBAP bridge
-version=2026.06.12
-versionCode=20260612
+version=2026.06.16
+versionCode=20260616
 author=dmitry+codex
 description=Experimental Bluetooth support for ECARX E02 / IHU717P based Geely and Knewstar head units at the stock app path.
