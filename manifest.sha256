@@ -1,0 +1,13 @@
+8fd18a26650d750b8a4546ca85ba6fd2ec8c68bf7dc6cc44e8bd930ed5ee699e  ./LICENSE
+9426a452c254da4f6be6caa4b4f71df2185187ce381af589c87653f398a0294a  ./README.md
+d3b34d58ccc9d9e5e32c27770621b5a9689e889332c28d247c2a658b72c08643  ./customize.sh
+5cabc2b93a9f5780b9a9f8ab889cb0e114413f3c2547a2c7b0f7a025d11a1b1f  ./module.prop
+da55f4382e43179b0dc3882071515d26f9f7df83ce1e380a4dd454c6c420046a  ./post-fs-data.sh
+afe4008505bcae6c6946027c81106baddcae820b9cdfee49dc282c46ccce6dbb  ./service.sh
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./system/app/Bluetooth/.replace
+b778bcbff8488be00ce072865f0fd7ffcce602763cbbb7d056ba9922ce1fe669  ./system/app/Bluetooth/Bluetooth.apk
+54e783e235c5a6ad64eac6354e42724271f86b651f3f75904f11f7f797049352  ./system/etc/permissions/privapp-permissions-ecarx-e02-bluetooth.xml
+467123a15de07d0591daf2f542c70331522bab85d6b71e1e6186499ad9c1000b  ./system/etc/sysconfig/hiddenapi-package-whitelist.xml
+03e9f5629d95b635ce33fb8b92305114359612fe757472ff8fc41484608d4671  ./system/lib64/libbluetooth.so
+78b53df76b24aa9a9d376a70f60ccc77e58f288ab73098339433d9e8bcb55ae0  ./system/lib64/libmtkbluetooth_jni.so
+1c9b06ed657d1ee3a0029a38d060c4171cda7f476e3fd3ffa291a03d23cbbb66  ./uninstall.sh
