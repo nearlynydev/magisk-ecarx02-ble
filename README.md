@@ -58,6 +58,28 @@ Current caution: this module intentionally forces the MTK/STP path. It is not
 the stable stock Classic Bluetooth setup, which uses the ECARX/GOC path with
 `ro.ecarx.bt_ismtk=false`.
 
+## Install
+
+Install the release ZIP through Magisk, then reboot the head unit.
+
+Current release artifact:
+
+```text
+ecarx_e02_ihu717p_bt_v2026.06.17.zip
+```
+
+After reboot, check the module log:
+
+```sh
+su -mm -c 'cat /data/adb/ecarx-bt-mtk.log'
+```
+
+The expected module-side effects are:
+
+- `ro.ecarx.bt_ismtk=true`;
+- `/dev/stpbt` exists and is owned by `bluetooth:bluetooth`;
+- Bluetooth reaches `state: ON` without repeated `com.android.bluetooth` crashes.
+
 ## Rollback
 
 Magisk file overlays are systemless. The stock files come back after the module
