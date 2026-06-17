@@ -57,3 +57,29 @@ Open TODO:
 Current caution: this module intentionally forces the MTK/STP path. It is not
 the stable stock Classic Bluetooth setup, which uses the ECARX/GOC path with
 `ro.ecarx.bt_ismtk=false`.
+
+## Rollback
+
+Magisk file overlays are systemless. The stock files come back after the module
+is disabled or removed and the head unit is rebooted.
+
+Runtime changes also need cleanup because `service.sh` grants permissions,
+changes appops, forces `ro.ecarx.bt_ismtk=true`, touches `/dev/stpbt`, and starts
+Bluetooth. Use:
+
+```sh
+su -mm -c /data/adb/modules/ecarx_e02_ihu717p_bt/rollback.sh
+reboot
+```
+
+The rollback script:
+
+- sets `ro.ecarx.bt_ismtk=false` for the current boot;
+- revokes/reset runtime grants and appops for `com.android.bluetooth`;
+- stops Bluetooth-related processes;
+- creates `/data/adb/modules/ecarx_e02_ihu717p_bt/disable`;
+- writes a log to `/data/adb/ecarx-bt-mtk-rollback.log`.
+
+Removing the module through Magisk also runs `uninstall.sh`, which delegates to
+the same rollback script when it is still available. Reboot is still required
+for the systemless file overlays to disappear.
