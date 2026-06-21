@@ -87,6 +87,12 @@ or indirect damage caused by installation, modification, redistribution, or use.
 
 Установить release ZIP через Magisk и перезагрузить ГУ.
 
+Актуальный артефакт (с фиксом A2DP Sink):
+
+```text
+work/releases/ecarx_e02_ihu717p_bt_v2026.06.21.zip
+```
+
 Ожидаемый эффект от модуля:
 
 - `ro.ecarx.bt_ismtk=true`;
