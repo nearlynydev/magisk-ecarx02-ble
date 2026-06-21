@@ -1,6 +1,6 @@
 id=ecarx_e02_ihu717p_bt
 name=Nearlynyble Bluetooth PBAP bridge
-version=2026.06.21
-versionCode=20260621
-author=dmitry+codex
-description=Nearlynyble experimental Bluetooth support for ECARX E02 / IHU717P based Geely and Knewstar head units at the stock app path.
+version=2026.06.22
+versionCode=20260622
+author=Dmitry Nearlyny
+description=Experimental Bluetooth support for ECARX E02 / IHU717P based Geely and Knewstar head units at the stock app path.

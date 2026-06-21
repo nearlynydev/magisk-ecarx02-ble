@@ -1,4 +1,4 @@
-# Nearlynyble Module File Dependency Map
+# Bluetooth Module File Dependency Map
 
 This document maps the module payload by call path, native dependency, and
 current necessity. It reflects the current local module tree after the
@@ -90,7 +90,7 @@ Audio path
 
 | File | Status | Used by | Why it exists / notes |
 | --- | --- | --- | --- |
-| `system/app/Bluetooth/.replace` | Required | Magisk overlay | Replaces stock `/system/app/Bluetooth` so stale stock files do not mix with Nearlynyble. Required. |
+| `system/app/Bluetooth/.replace` | Required | Magisk overlay | Replaces stock `/system/app/Bluetooth` so stale stock files do not mix with the module payload. Required. |
 | `system/app/Bluetooth/Bluetooth.apk` | Required | PackageManager / Bluetooth services | Patched APK. Enables sink-only A2DP, HFP Client audio request on active call, PBAP Client priority init, PBAP/HFP/AVRCP/GATT services. Required. |
 | `system/app/Bluetooth/lib/arm64/libbase.so` | Required | App-local `libchrome.so` | Dependency of app-local `libchrome.so`. Contacts/PBAP recovered after app-local `libchrome/libbase` payload was added. Required until a live removal test proves otherwise. |
 | `system/app/Bluetooth/lib/arm64/libchrome.so` | Required | APK native stack and app-local binder | Required by Bluetooth native pieces; earlier PBAP/AVRCP path needed this app-local copy. Required. |
