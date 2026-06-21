@@ -1,30 +1,10 @@
-# ECARX E02 IHU717P Geely/Knewstar Bluetooth Magisk Module
+# Bluetooth Magisk Module
 
-This module packages the reduced Bluetooth experiment for ECARX E02 / IHU717P
-based Geely and Knewstar head units. Files that matched the stock IHU717P
-firmware byte-for-byte were removed from the payload.
-
-- replaces the stock `/system/app/Bluetooth` directory via `.replace`;
-- overlays `/system/app/Bluetooth/Bluetooth.apk` at the stock PackageManager code path;
-- patches the APK resource profile flags to the car/head-unit profile set
-  (`A2DP Sink`, `Headset Client`, `PBAP Client`, `AVRCP Controller`);
-- overlays Bluetooth libraries in `/system/lib64` and app-local `lib/arm64`;
-- adds `privapp-permissions-ecarx-e02-bluetooth.xml` with the broader
-  Bluetooth/MAP/PAN/HFP/A2DP/AVRCP/audio/telephony privilege set requested by
-  the bundled Bluetooth APK;
-- adds a package-specific hidden API whitelist for `com.android.bluetooth`;
-- sets `ro.ecarx.bt_ismtk=true`;
-- loads `/vendor/lib/modules/bt_drv.ko`;
-- grants runtime/appops for contacts, call log, SMS/MAP, storage/OPP, location
-  scanning, accounts, overlay/settings, and usage stats;
-- fixes `/dev/stpbt` owner/mode and enables Bluetooth after boot.
-
-The bundled APK is still the receiver-patched build. A fully unpatched APK did
-not receive `android.permission.INTERACT_ACROSS_USERS_FULL` because the IHU
-framework declares that permission as `signature|installer`, not
-`signature|privileged`.
-
-License:
+This is an experimental Magisk module for ECARX E02 / IHU717P based Geely
+and Knewstar head units. It overlays a patched Bluetooth APK, MTK/STP Bluetooth
+libraries, permissions, boot scripts, and audio/Bluetooth HAL support files for
+researching BLE/HWGPS, A2DP Sink, HFP Client, PBAP Client, and AVRCP Controller
+behavior on the head unit.
 
 This module's original packaging, scripts, documentation, and project glue are
 released under the MIT License. See `LICENSE`.
@@ -45,63 +25,82 @@ liable for damaged or bricked devices, boot loops, data loss, warranty loss,
 unsafe vehicle behavior, legal issues, license violations, or any other direct
 or indirect damage caused by installation, modification, redistribution, or use.
 
-Open TODO:
+---
 
-- Music/audio path is not finished yet: validate A2DP Sink connection, media
-  audio routing into the head unit mixer, AVRCP metadata, and play/pause/track
-  controls from the car UI.
-- Phone call path is not finished yet: validate HFP/HF Client registration,
-  SCO audio routing, microphone capture, call state updates, caller ID, answer,
-  reject, hangup, and in-call volume controls.
+# Magisk-модуль для Bluetooth
 
-Current caution: this module intentionally forces the MTK/STP path. It is not
-the stable stock Classic Bluetooth setup, which uses the ECARX/GOC path with
-`ro.ecarx.bt_ismtk=false`.
+Перед вами экспериментальный Magisk-модуль для Bluetooth/BLE на головных
+устройствах ECARX E02 / IHU717P для Geely и Knewstar. Модуль реализует
+рабочий MTK/STP Bluetooth-стек, устанавливает патченный Bluetooth APK, необходимые 
+библиотеки и конфиги в системный слой.
 
-## Install
+Модуль делает следующее:
 
-Install the release ZIP through Magisk, then reboot the head unit.
+- заменяет штатный каталог `/system/app/Bluetooth` через `.replace`;
+- подменяет `/system/app/Bluetooth/Bluetooth.apk` в штатном PackageManager path;
+- включает профильный набор для ГУ в ресурсах APK: `A2DP Sink`, `Headset Client`,
+  `PBAP Client`, `AVRCP Controller`;
+- подменяет Bluetooth-библиотеки в `/system/lib64` и app-local `lib/arm64`;
+- добавляет `privapp-permissions-ecarx-e02-bluetooth.xml` с расширенным набором
+  прав для Bluetooth/MAP/PAN/HFP/A2DP/AVRCP/audio/telephony;
+- добавляет package-specific hidden API whitelist для `com.android.bluetooth`;
+- выставляет `ro.ecarx.bt_ismtk=true`;
+- загружает `/vendor/lib/modules/bt_drv.ko`;
+- выдаёт runtime grants/appops для контактов, журнала звонков, SMS/MAP,
+  storage/OPP, location scanning, accounts, overlay/settings и usage stats.
 
-Current release artifact:
+## Лицензия
 
-```text
-ecarx_e02_ihu717p_bt_v2026.06.17.zip
-```
+Оригинальная упаковка модуля, скрипты, документация и проектная обвязка
+распространяются по лицензии MIT. См. `LICENSE`.
 
-After reboot, check the module log:
+Сторонние прошивки, APK, бинарные файлы, библиотеки, символы, названия и
+протоколы, на которые ссылается этот эксперимент или которые входят в его
+состав, остаются под лицензиями и правами их владельцев. MIT-лицензия этого
+модуля не даёт дополнительных прав на сторонние компоненты.
 
-```sh
-su -mm -c 'cat /data/adb/ecarx-bt-mtk.log'
-```
+## Отказ от ответственности 
 
-The expected module-side effects are:
+Этот модуль экспериментальный и предназначен только для исследований,
+диагностики и работ по совместимости. Он предоставляется "как есть", без
+каких-либо гарантий.
+
+Вы единолично отвечаете за его использование. Авторы и участники не несут
+ответственности за повреждённые или заблокированные устройства, boot loop,
+потерю данных, потерю гарантии, небезопасное поведение автомобиля, юридические
+проблемы, нарушения лицензий и любой другой прямой или косвенный ущерб,
+возникший из-за установки, модификации, распространения или использования.
+
+
+## Статус
+
+Модуль объединяет два связанных, но отдельных направления:
+
+- BLE/GATT для HWGPS-модуля. HWGPS подключается по BLE и виден Android как
+  `org.astpepper.hwgps`; этот путь отделён от Classic Bluetooth audio/phone
+  профилей.
+- Classic Bluetooth для интеграции телефона с ГУ: HFP/HF Client, PBAP Client,
+  A2DP Sink и AVRCP Controller.
+
+
+## Установка
+
+Установить release ZIP через Magisk и перезагрузить ГУ.
+
+Ожидаемый эффект от модуля:
 
 - `ro.ecarx.bt_ismtk=true`;
-- `/dev/stpbt` exists and is owned by `bluetooth:bluetooth`;
-- Bluetooth reaches `state: ON` without repeated `com.android.bluetooth` crashes.
+- `/dev/stpbt` существует и принадлежит `bluetooth:bluetooth`;
+- Bluetooth доходит до `state: ON` без повторяющихся падений `com.android.bluetooth`.
 
-## Rollback
+## Откат
 
-Magisk file overlays are systemless. The stock files come back after the module
-is disabled or removed and the head unit is rebooted.
+Штатные файлы вернутся после отключения/удаления модуля и перезагрузки ГУ.
 
-Runtime changes also need cleanup because `service.sh` grants permissions,
-changes appops, forces `ro.ecarx.bt_ismtk=true`, touches `/dev/stpbt`, and starts
-Bluetooth. Use:
+## Поддержка автора
 
-```sh
-su -mm -c /data/adb/modules/ecarx_e02_ihu717p_bt/rollback.sh
-reboot
-```
+Благодарность за работу автора можно выразить материально:
 
-The rollback script:
+[<img src="https://nearlynydev.github.io/static/qr.jpg" width="200px" />](https://pay.cloudtips.ru/p/627dbed1)
 
-- sets `ro.ecarx.bt_ismtk=false` for the current boot;
-- revokes/reset runtime grants and appops for `com.android.bluetooth`;
-- stops Bluetooth-related processes;
-- creates `/data/adb/modules/ecarx_e02_ihu717p_bt/disable`;
-- writes a log to `/data/adb/ecarx-bt-mtk-rollback.log`.
-
-Removing the module through Magisk also runs `uninstall.sh`, which delegates to
-the same rollback script when it is still available. Reboot is still required
-for the systemless file overlays to disappear.
+https://pay.cloudtips.ru/p/627dbed1
