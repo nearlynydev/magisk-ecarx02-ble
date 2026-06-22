@@ -83,7 +83,7 @@ Audio path
 | `customize.sh` | Required | Magisk installer | Sets permissions on module tree and scripts. Required. |
 | `post-fs-data.sh` | Required | Magisk boot stage | Selects MTK path before late userspace and stops `gocsdk`. Required for the current MTK/STP path. |
 | `service.sh` | Required | Magisk late boot | Brings up STP/BT, grants permissions/appops, starts Bluetooth, keeps `gocsdk` stopped. Required. |
-| `rollback.sh` | Required | Manual rollback and uninstall | Resets runtime state and disables the module. Keep. |
+| `rollback.sh` | Required | Manual rollback and uninstall | Resets runtime state, clears imported Bluetooth contacts/call-log provider data, and disables the module. Keep. |
 | `uninstall.sh` | Required | Magisk uninstall | Calls rollback during uninstall. Keep. |
 
 ## Bluetooth APK Directory

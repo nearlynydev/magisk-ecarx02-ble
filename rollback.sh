@@ -5,12 +5,49 @@
 
 LOG=/data/adb/ecarx-bt-mtk-rollback.log
 PKG=com.android.bluetooth
+CONTACTS_PROVIDER=com.android.providers.contacts
 MODID=ecarx_e02_ihu717p_bt
 MODDIR=/data/adb/modules/$MODID
+CONTACTS_DB_DIR=/data/data/$CONTACTS_PROVIDER/databases
 
 run() {
   echo "+ $*" >> "$LOG"
   "$@" >> "$LOG" 2>&1
+}
+
+cleanup_provider_data() {
+  echo "provider_cleanup_start"
+
+  # First try the public providers. On some ECARX Android 9 builds the `content`
+  # command aborts, so this is best-effort only.
+  content delete --uri content://com.android.contacts/raw_contacts \
+    --where "account_type='com.android.bluetooth' OR account_name='com.android.bluetooth'" \
+    >/dev/null 2>&1 || true
+  content delete --uri content://call_log/calls \
+    --where "subscription_component_name='com.android.bluetooth/com.android.bluetooth.hfpclient.connserv.HfpClientConnectionService'" \
+    >/dev/null 2>&1 || true
+
+  # Rollback should leave the head unit as close to stock as possible. The module
+  # imports phonebook/call-log data into ContactsProvider, and those rows are not
+  # owned by com.android.bluetooth anymore. Since this head-unit use case has no
+  # local address book outside the Bluetooth import path, clear the provider DBs
+  # when direct provider deletion is unavailable or incomplete.
+  run am force-stop "$CONTACTS_PROVIDER"
+  if [ -d "$CONTACTS_DB_DIR" ]; then
+    rm -f \
+      "$CONTACTS_DB_DIR/contacts2.db" \
+      "$CONTACTS_DB_DIR/contacts2.db-shm" \
+      "$CONTACTS_DB_DIR/contacts2.db-wal" \
+      "$CONTACTS_DB_DIR/contacts2.db-journal" \
+      "$CONTACTS_DB_DIR/calllog.db" \
+      "$CONTACTS_DB_DIR/calllog.db-shm" \
+      "$CONTACTS_DB_DIR/calllog.db-wal" \
+      "$CONTACTS_DB_DIR/calllog.db-journal" \
+      >/dev/null 2>&1 || true
+    echo "provider_dbs_removed=$CONTACTS_DB_DIR"
+  else
+    echo "provider_db_dir_missing=$CONTACTS_DB_DIR"
+  fi
 }
 
 {
@@ -45,6 +82,7 @@ run() {
   run am force-stop "$PKG"
   run am force-stop com.ecarx.btphone
   setprop ctl.stop bluetooth-1-0 2>/dev/null || true
+  cleanup_provider_data
 
   if [ -d "$MODDIR" ] && [ "$1" != "--from-uninstall" ]; then
     touch "$MODDIR/disable" 2>/dev/null || true
@@ -53,4 +91,3 @@ run() {
 
   echo "rollback done; reboot is required to remove systemless overlays"
 } >> "$LOG" 2>&1
-

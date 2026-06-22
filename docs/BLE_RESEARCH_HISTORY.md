@@ -628,6 +628,9 @@ Reason:
 `rollback.sh`:
 
 - Reverts runtime state as far as possible.
+- Clears imported Bluetooth phonebook and call-log provider data. These rows are
+  written into `ContactsProvider` / `CallLogProvider`, so clearing only
+  `com.android.bluetooth` is not enough.
 - Creates the Magisk disable marker.
 - Leaves the real system partitions untouched because the module is systemless.
 

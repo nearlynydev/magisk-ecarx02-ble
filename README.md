@@ -87,10 +87,10 @@ or indirect damage caused by installation, modification, redistribution, or use.
 
 Установить release ZIP через Magisk и перезагрузить ГУ.
 
-Актуальный артефакт (с фиксом A2DP Sink):
+Актуальный артефакт:
 
 ```text
-work/releases/ecarx_e02_ihu717p_bt_v2026.06.21.zip
+work/releases/ecarx_e02_ihu717p_bt_v2026.06.22.zip
 ```
 
 Ожидаемый эффект от модуля:
@@ -102,6 +102,9 @@ work/releases/ecarx_e02_ihu717p_bt_v2026.06.21.zip
 ## Откат
 
 Штатные файлы вернутся после отключения/удаления модуля и перезагрузки ГУ.
+Откат также очищает импортированные через Bluetooth контакты и журнал звонков
+из `ContactsProvider` / `CallLogProvider`, потому что эти данные уже записаны
+в системные provider-базы и не удаляются простым `pm clear com.android.bluetooth`.
 
 ## Поддержка автора
 
