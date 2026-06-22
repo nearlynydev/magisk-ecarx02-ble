@@ -9,6 +9,8 @@ CONTACTS_PROVIDER=com.android.providers.contacts
 MODID=ecarx_e02_ihu717p_bt
 MODDIR=/data/adb/modules/$MODID
 CONTACTS_DB_DIR=/data/data/$CONTACTS_PROVIDER/databases
+BT_CE_DIR=/data/user/0/$PKG
+BT_DE_DIR=/data/user_de/0/$PKG
 
 run() {
   echo "+ $*" >> "$LOG"
@@ -22,6 +24,27 @@ cleanup_btphone_cache() {
     /data/data/com.ecarx.btphone/code_cache \
     >/dev/null 2>&1 || true
   echo "btphone_cache_cleared"
+}
+
+cleanup_bluetooth_app_data() {
+  echo "bluetooth_app_data_cleanup_start"
+
+  # The module Bluetooth.apk creates a newer OPP database than the stock ECARX
+  # Bluetooth.apk expects. If this database survives rollback, stock Bluetooth
+  # crashes in a loop with "Can't downgrade database from version 2 to 1".
+  for dir in "$BT_CE_DIR" "$BT_DE_DIR"; do
+    [ -d "$dir" ] || continue
+    rm -rf \
+      "$dir/databases" \
+      "$dir/shared_prefs" \
+      "$dir/cache" \
+      "$dir/code_cache" \
+      >/dev/null 2>&1 || true
+    mkdir -p "$dir/cache" "$dir/code_cache" >/dev/null 2>&1 || true
+    chown -R bluetooth:bluetooth "$dir" >/dev/null 2>&1 || true
+    restorecon -R "$dir" >/dev/null 2>&1 || true
+    echo "bluetooth_app_data_cleared=$dir"
+  done
 }
 
 cleanup_provider_data() {
@@ -114,6 +137,7 @@ cleanup_bluetooth_data() {
   run am force-stop "$PKG"
   cleanup_btphone_cache
   setprop ctl.stop bluetooth-1-0 2>/dev/null || true
+  cleanup_bluetooth_app_data
   cleanup_bluetooth_data
   cleanup_provider_data
 
