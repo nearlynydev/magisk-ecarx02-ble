@@ -4,6 +4,15 @@
   LOG=/data/adb/ecarx-bt-mtk.log
   echo "$(date) service start" >> "$LOG"
 
+  cleanup_btphone_cache() {
+    am force-stop com.ecarx.btphone >> "$LOG" 2>&1 || true
+    rm -rf \
+      /data/data/com.ecarx.btphone/cache \
+      /data/data/com.ecarx.btphone/code_cache \
+      >/dev/null 2>&1 || true
+    echo "$(date) btphone cache cleared" >> "$LOG"
+  }
+
   resetprop ro.ecarx.bt_ismtk true 2>/dev/null || /sbin/resetprop ro.ecarx.bt_ismtk true 2>/dev/null || true
   echo "$(date) prop ro.ecarx.bt_ismtk=$(getprop ro.ecarx.bt_ismtk)" >> "$LOG"
 
@@ -111,7 +120,7 @@
   fi
 
   if dumpsys bluetooth_manager 2>/dev/null | grep -q 'state: ON'; then
-    am kill com.ecarx.btphone >> "$LOG" 2>&1 || true
+    cleanup_btphone_cache
   fi
   echo "$(date) final bt=$(dumpsys bluetooth_manager 2>/dev/null | grep -m1 'state:' | sed 's/^ *//') prop=$(getprop ro.ecarx.bt_ismtk) stpbt=$(ls /dev/stpbt 2>/dev/null)" >> "$LOG"
 ) &

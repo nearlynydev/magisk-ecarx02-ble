@@ -15,6 +15,15 @@ run() {
   "$@" >> "$LOG" 2>&1
 }
 
+cleanup_btphone_cache() {
+  run am force-stop com.ecarx.btphone
+  rm -rf \
+    /data/data/com.ecarx.btphone/cache \
+    /data/data/com.ecarx.btphone/code_cache \
+    >/dev/null 2>&1 || true
+  echo "btphone_cache_cleared"
+}
+
 cleanup_provider_data() {
   echo "provider_cleanup_start"
 
@@ -103,7 +112,7 @@ cleanup_bluetooth_data() {
   # selected only after reboot because Magisk overlays and init properties are
   # evaluated during boot.
   run am force-stop "$PKG"
-  run am force-stop com.ecarx.btphone
+  cleanup_btphone_cache
   setprop ctl.stop bluetooth-1-0 2>/dev/null || true
   cleanup_bluetooth_data
   cleanup_provider_data
