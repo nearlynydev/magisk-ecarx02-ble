@@ -21,10 +21,10 @@ cleanup_provider_data() {
   # First try the public providers. On some ECARX Android 9 builds the `content`
   # command aborts, so this is best-effort only.
   content delete --uri content://com.android.contacts/raw_contacts \
-    --where "account_type='com.android.bluetooth' OR account_name='com.android.bluetooth'" \
+    --where "account_type='com.android.bluetooth.pbapsink' OR account_type='com.android.bluetooth' OR account_name='com.android.bluetooth'" \
     >/dev/null 2>&1 || true
   content delete --uri content://call_log/calls \
-    --where "subscription_component_name='com.android.bluetooth/com.android.bluetooth.hfpclient.connserv.HfpClientConnectionService'" \
+    --where "subscription_id='-290325860' OR subscription_component_name='com.android.bluetooth/com.android.bluetooth.hfpclient.connserv.HfpClientConnectionService'" \
     >/dev/null 2>&1 || true
 
   # Rollback should leave the head unit as close to stock as possible. The module
