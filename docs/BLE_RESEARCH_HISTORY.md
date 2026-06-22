@@ -631,6 +631,8 @@ Reason:
 - Clears imported Bluetooth phonebook and call-log provider data. These rows are
   written into `ContactsProvider` / `CallLogProvider`, so clearing only
   `com.android.bluetooth` is not enough.
+- Clears Bluetooth pairing/profile/GATT cache and btsnoop/firmware logs so the
+  stock stack starts without experimental state after module removal.
 - Creates the Magisk disable marker.
 - Leaves the real system partitions untouched because the module is systemless.
 

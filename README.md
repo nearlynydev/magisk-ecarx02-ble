@@ -105,6 +105,9 @@ work/releases/ecarx_e02_ihu717p_bt_v2026.06.22.zip
 Откат также очищает импортированные через Bluetooth контакты и журнал звонков
 из `ContactsProvider` / `CallLogProvider`, потому что эти данные уже записаны
 в системные provider-базы и не удаляются простым `pm clear com.android.bluetooth`.
+Кроме этого, откат удаляет Bluetooth pairing/profile/GATT cache и btsnoop /
+firmware logs, чтобы после удаления модуля стоковый Bluetooth стартовал без
+хвостов экспериментального стека.
 
 ## Поддержка автора
 

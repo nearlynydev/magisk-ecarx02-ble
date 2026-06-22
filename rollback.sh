@@ -50,6 +50,29 @@ cleanup_provider_data() {
   fi
 }
 
+cleanup_bluetooth_data() {
+  echo "bluetooth_data_cleanup_start"
+
+  # Clear pairing/profile/GATT cache and snoop/firmware logs left by the
+  # experimental stack. These files are recreated by the stock Bluetooth service
+  # after reboot.
+  rm -f \
+    /data/misc/bluedroid/bt_config.conf \
+    /data/misc/bluedroid/bt_config.bak \
+    /data/misc/bluedroid/btsnoop_hci.log \
+    /data/misc/bluetooth/btsnoop_hci.log \
+    /data/misc/bluetooth/logs/firmware_events.log \
+    /data/misc/bluetooth/logs/firmware_events.log.last \
+    /sdcard/btsnoop_hci.log \
+    >/dev/null 2>&1 || true
+  rm -rf \
+    /data/misc/bluetooth/cache \
+    /data/misc/bluetooth/logs \
+    >/dev/null 2>&1 || true
+
+  echo "bluetooth_data_cleanup_done"
+}
+
 {
   echo "=== $(date) rollback start args=$* ==="
 
@@ -82,6 +105,7 @@ cleanup_provider_data() {
   run am force-stop "$PKG"
   run am force-stop com.ecarx.btphone
   setprop ctl.stop bluetooth-1-0 2>/dev/null || true
+  cleanup_bluetooth_data
   cleanup_provider_data
 
   if [ -d "$MODDIR" ] && [ "$1" != "--from-uninstall" ]; then
