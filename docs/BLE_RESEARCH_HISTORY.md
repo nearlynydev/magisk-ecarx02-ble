@@ -541,6 +541,84 @@ Release preparation:
 - Published through `gh release create`.
 - Removed older GitHub releases and tags.
 
+### 2026-06-30: iPhone PBAP, Class of Device, and auto-sync chain
+
+A live iPhone exposed three regressions versus the legacy GOC stack: no
+"Sync Contacts" prompt at pairing, contact sync hanging, and the call log
+never importing. These were resolved as one chain and released as
+`v2026.06.30`.
+
+Class of Device (contacts prompt):
+
+- The head unit advertised a smartphone CoD (`0x5a020c`), so iOS treated it
+  as a phone and never offered phonebook sync.
+- A rodata patch in `libbluetooth.so` and a `DevClass` edit in
+  `bt_config.conf` both had no runtime effect.
+- Root cause: AOSP `AdapterService.setBluetoothClassFromConfig()` reads the
+  CoD from `Settings.Global bluetooth_class_of_device`, overriding the
+  config. Writing `2360352` (`0x240420`, Audio/Video / Car audio) made the
+  live CoD change to `240420` and the iPhone began offering contacts sync.
+  This is now done in `service.sh` on every boot.
+
+Auto-connect and auto-sync (sync no longer needs a manual button):
+
+- `PbapClientService` registers for `ACL_CONNECTED`; the receiver
+  auto-calls `connect(device)` so PBAP attaches as soon as the phone links.
+- `PbapClientConnectionHandler` retries `addAccount` (remove + re-add) when
+  account creation fails, then fires the UI sync callback after the call-log
+  pull completes.
+
+Call-log UI display (`subscription_id`):
+
+- Provider rows existed but `NSBTPhone`/`XCBTPhone` showed nothing because it
+  matches the account by MAC string while `CallLogPullRequest` wrote
+  `mAccount.hashCode()` (numeric) into `subscription_id`.
+- `CallLogPullRequest` now writes `mAccount.name` (the MAC string), so the UI
+  call log populates.
+
+Infinite-loop fix:
+
+- An initial implementation fired `onSyncPhonebookStatusChanged` for sync
+  types 1, 2, and 3, which made the UI's sequential download chain restart
+  forever (~every 15 s, effectively a DoS on the paired iPhone).
+- Fixed by firing a single sync type (`sEcarxSyncType`, defaulting to `1`)
+  and removing the extra delayed retries. Verified on the head unit: two
+  downloads then silence, no periodic "sync complete" churn.
+
+Release `v2026.06.30`:
+
+- `module.prop` `2026.06.30`; APK `cbfe73aa…`; native `libbluetooth.so`
+  `6675f14c…`.
+- `rollback.sh` extended to clear the forced `bluetooth_class_of_device` and
+  reset profile priorities so removal returns to stock.
+- README rewritten in Russian (root-only requirement, full feature list,
+  live-confirmed status, correct artifact link).
+- Committed `df864f3`, tagged `v2026.06.30`, pushed, GitHub release created
+  (asset SHA-256 `057be7cc…`).
+
+### 2026-06-30: Stock bt_config backup and restore on removal
+
+To make uninstall return the head unit to its *original* pairings rather
+than a wiped Bluetooth config, install/removal now manage a one-time backup.
+Released as `v2026.06.30.1`.
+
+- `customize.sh` copies the stock
+  `/data/misc/bluedroid/bt_config.conf` (and `.bak`) to
+  `/data/adb/ecarx-bt-stock-backup` on install, only when no backup exists
+  yet, so the first install captures true stock state and later updates keep
+  it. The backup lives outside the module, so it survives uninstall.
+- `rollback.sh` `cleanup_bluetooth_data()` restores that backup on removal
+  (with `chown bluetooth:bluetooth` + `restorecon`, then deletes the backup
+  dir). If no backup exists it falls back to deleting the experimental
+  config so the stock stack starts clean. Snoop/firmware logs and transient
+  caches are always cleared afterward.
+- Note: the development head unit had already lost its stock `bt_config`
+  earlier in the session (the MTK stack overwrote it), so this feature is
+  forward-looking — it benefits future clean installs. Verified by review
+  and `sh -n`, not by a live install/uninstall cycle (which would disrupt
+  the working in-car Bluetooth).
+- `module.prop` `2026.06.30.1`; committed `c19bd07`, tagged `v2026.06.30.1`.
+
 ## Patch Inventory
 
 ### Bluetooth APK
@@ -623,16 +701,33 @@ Reason:
 - Fixes `/dev/stpbt` owner/mode.
 - Grants runtime permissions and appops to `com.android.bluetooth`.
 - Resets stale negative Bluetooth profile priorities.
+- Writes the car-audio Class of Device to
+  `Settings.Global bluetooth_class_of_device` (`2360352` / `0x240420`) so
+  iOS offers contacts sync.
 - Starts Bluetooth.
+
+`customize.sh`:
+
+- Sets file permissions on the payload and scripts.
+- Backs up the stock `bt_config.conf` (and `.bak`) to
+  `/data/adb/ecarx-bt-stock-backup` once, before the MTK stack overwrites it,
+  for `rollback.sh` to restore on removal.
 
 `rollback.sh`:
 
 - Reverts runtime state as far as possible.
+- Reverts `ro.ecarx.bt_ismtk` to `false`.
+- Clears the forced `bluetooth_class_of_device` and resets the profile
+  priorities back to undefined so the stock stack manages them.
 - Clears imported Bluetooth phonebook and call-log provider data. These rows are
   written into `ContactsProvider` / `CallLogProvider`, so clearing only
   `com.android.bluetooth` is not enough.
+- Restores the stock `bt_config.conf` from the install-time backup (original
+  pairings), or deletes the experimental config if no backup exists.
 - Clears Bluetooth pairing/profile/GATT cache and btsnoop/firmware logs so the
   stock stack starts without experimental state after module removal.
+- Removes the donor OPP database so stock Bluetooth does not crash-loop with
+  "Can't downgrade database".
 - Creates the Magisk disable marker.
 - Leaves the real system partitions untouched because the module is systemless.
 
@@ -741,7 +836,7 @@ Android 9 MTK donor family:
 Version:
 
 ```text
-2026.06.21
+2026.06.30.1
 ```
 
 Main payload paths:
@@ -770,7 +865,9 @@ Runtime policy:
 - BLE/HWGPS:
   - Continue checking that HWGPS GATT survives every Classic Bluetooth stack
     change.
-  - Capture a clean BLE session log with the final v2026.06.21 payload.
+  - Capture a clean BLE session log with the final payload.
+  - HWGPS does not connect over BLE during an active call: single-antenna SCO
+    starves the LE scan. Treated as an inherent coexistence limitation.
 - A2DP:
   - Verify AVRCP metadata.
   - Verify play/pause/next/previous from the vehicle UI.
@@ -781,10 +878,12 @@ Runtime policy:
   - Validate answer/reject/hangup from the vehicle UI.
   - Re-check call volume only with live car audio available.
 - PBAP:
-  - Confirm pairing-time phone prompt for contacts/call history.
-  - Import or display favorites.
-  - Resolve UI call-log display if `NSBTPhone` expects a MAC string while
-    provider rows use numeric `subscription_id`.
+  - Pairing-time iPhone prompt for contacts: resolved via car-audio CoD in
+    `Settings.Global` (confirmed live).
+  - Call-log UI display: resolved by writing the MAC string into
+    `subscription_id` (confirmed live).
+  - Auto-connect and auto-sync on pairing: resolved (no manual button).
+  - Still open: import or display favorites.
 - Payload cleanup:
   - Test whether donor audio HAL support files are still needed.
   - Test whether vendor Bluetooth diagnostic libraries can be removed.

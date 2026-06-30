@@ -85,12 +85,33 @@ cleanup_provider_data() {
 cleanup_bluetooth_data() {
   echo "bluetooth_data_cleanup_start"
 
-  # Clear pairing/profile/GATT cache and snoop/firmware logs left by the
-  # experimental stack. These files are recreated by the stock Bluetooth service
-  # after reboot.
+  # Restore the stock bluedroid config saved by customize.sh at install, so the
+  # head unit returns to its original pairings instead of a wiped config. If no
+  # backup exists (e.g. it could not be captured), fall back to removing the
+  # experimental config so the stock stack starts clean.
+  STOCK_BK=/data/adb/ecarx-bt-stock-backup
+  if [ -f "$STOCK_BK/bt_config.conf" ]; then
+    cp -af "$STOCK_BK/bt_config.conf" /data/misc/bluedroid/bt_config.conf 2>/dev/null || true
+    if [ -f "$STOCK_BK/bt_config.bak" ]; then
+      cp -af "$STOCK_BK/bt_config.bak" /data/misc/bluedroid/bt_config.bak 2>/dev/null || true
+    else
+      rm -f /data/misc/bluedroid/bt_config.bak >/dev/null 2>&1 || true
+    fi
+    chown bluetooth:bluetooth /data/misc/bluedroid/bt_config.conf /data/misc/bluedroid/bt_config.bak 2>/dev/null || true
+    restorecon /data/misc/bluedroid/bt_config.conf /data/misc/bluedroid/bt_config.bak 2>/dev/null || true
+    rm -rf "$STOCK_BK" >/dev/null 2>&1 || true
+    echo "bt_config_restored_from_stock_backup"
+  else
+    rm -f \
+      /data/misc/bluedroid/bt_config.conf \
+      /data/misc/bluedroid/bt_config.bak \
+      >/dev/null 2>&1 || true
+    echo "bt_config_removed_no_backup"
+  fi
+
+  # Snoop/firmware logs and transient caches left by the experimental stack are
+  # always cleared; the stock Bluetooth service recreates what it needs.
   rm -f \
-    /data/misc/bluedroid/bt_config.conf \
-    /data/misc/bluedroid/bt_config.bak \
     /data/misc/bluedroid/btsnoop_hci.log \
     /data/misc/bluetooth/btsnoop_hci.log \
     /data/misc/bluetooth/logs/firmware_events.log \
