@@ -161,3 +161,9 @@ ecarx_e02_ihu717p_bt_v2026.06.30.1.zip
 [<img src="https://nearlynydev.github.io/static/qr.jpg" width="200px" />](https://pay.cloudtips.ru/p/627dbed1)
 
 https://pay.cloudtips.ru/p/627dbed1
+
+## Группа поддержки
+
+Обсуждение, вопросы по установке и обратная связь — в Telegram-группе:
+
+https://t.me/ecarx02_ble
