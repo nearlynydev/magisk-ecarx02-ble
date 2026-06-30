@@ -131,6 +131,18 @@ cleanup_bluetooth_data() {
 
   cmd appops reset "$PKG" >/dev/null 2>&1 || true
 
+  # Revert the car-audio Class of Device override that service.sh writes to
+  # Settings.Global (bluetooth_class_of_device). The stock AOSP Bluetooth app
+  # reads the same key on enable, so it must be cleared to return to stock.
+  settings delete global bluetooth_class_of_device >/dev/null 2>&1 || true
+  echo "cleared bluetooth_class_of_device=$(settings get global bluetooth_class_of_device 2>/dev/null)"
+
+  # Reset the profile priorities service.sh forced to 100 back to undefined so
+  # the stock stack manages them again.
+  settings list global 2>/dev/null | grep -E '^bluetooth_(a2dp_src|headset|pbap_client)_priority_' | while IFS='=' read -r key value; do
+    settings delete global "$key" >/dev/null 2>&1 || true
+  done
+
   # Return Bluetooth to a clean boot-time state. The stock ECARX/GOC path is
   # selected only after reboot because Magisk overlays and init properties are
   # evaluated during boot.

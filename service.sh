@@ -107,6 +107,14 @@
     echo "$(date) reset $key from $value to 100" >> "$LOG"
   done
 
+  # Force a car-audio Class of Device (0x240420 = Audio/Video major, Car audio
+  # minor). The framework reads this from Settings.Global on Bluetooth enable
+  # (AdapterService.setBluetoothClassFromConfig). The stock/MTK default is a
+  # phone/smartphone class (0x5a020c), so iPhones do not offer contact/call-log
+  # sync at pairing. Must be set before the enable step below.
+  settings put global bluetooth_class_of_device 2360352 >> "$LOG" 2>&1 || true
+  echo "$(date) set bluetooth_class_of_device=$(settings get global bluetooth_class_of_device 2>/dev/null)" >> "$LOG"
+
   bt_state="$(dumpsys bluetooth_manager 2>/dev/null | grep -m1 'state:' | sed 's/^ *//')"
   if [ -e /dev/stpbt ] && echo "$bt_state" | grep -q 'state: ON'; then
     echo "$(date) bluetooth already ON, not restarting" >> "$LOG"

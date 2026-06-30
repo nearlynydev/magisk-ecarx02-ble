@@ -1,6 +1,6 @@
 id=ecarx_e02_ihu717p_bt
 name=IHU717P BLE/Classic Bluetooth support
-version=2026.06.22
-versionCode=20260622
+version=2026.06.30
+versionCode=20260630
 author=Dmitry Nearlyny
 description=Experimental Bluetooth support for ECARX E02 / IHU717P based Geely and Knewstar head units at the stock app path.

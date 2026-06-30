@@ -47,7 +47,19 @@ or indirect damage caused by installation, modification, redistribution, or use.
 - выставляет `ro.ecarx.bt_ismtk=true`;
 - загружает `/vendor/lib/modules/bt_drv.ko`;
 - выдаёт runtime grants/appops для контактов, журнала звонков, SMS/MAP,
-  storage/OPP, location scanning, accounts, overlay/settings и usage stats.
+  storage/OPP, location scanning, accounts, overlay/settings и usage stats;
+- патчит нативный A2DP Sink (`bta_av_co_audio_init` в `libbluetooth.so`): MTK-сборка
+  не регистрировала локальные приёмные AVDTP-SEP, из-за чего музыка не играла;
+- запрашивает audio focus при старте A2DP-потока (иначе декодер дропал кадры и звук
+  не доходил до динамиков);
+- чинит аудио звонка (HFP HF Client): подключает SCO при активном вызове, а патч
+  аудио-HAL `audio.primary.ecarxp.so` делает громкость вызова динамической;
+- авто-синхронизирует PBAP при подключении телефона (контакты, журнал вызовов,
+  избранное) и обновляет их в UI штатного телефонного приложения;
+- выставляет автомобильный Class of Device (`0x240420` — Audio/Video / Car audio)
+  через `Settings.Global bluetooth_class_of_device`, чтобы iPhone предлагал
+  синхронизацию контактов при сопряжении (стоковый MTK-класс — «смартфон»);
+- сбрасывает зависшие отрицательные приоритеты Bluetooth-профилей.
 
 ## Лицензия
 
@@ -82,15 +94,28 @@ or indirect damage caused by installation, modification, redistribution, or use.
 - Classic Bluetooth для интеграции телефона с ГУ: HFP/HF Client, PBAP Client,
   A2DP Sink и AVRCP Controller.
 
+Подтверждено на живом ГУ (iPhone): музыка по A2DP играет, звонки HFP со звуком,
+BLE/HWGPS подключается, контакты и журнал вызовов синхронизируются и видны в UI,
+при сопряжении iPhone предлагает синхронизацию контактов.
+
+## Требования
+
+- **Только устройство с root (Magisk).** Модуль ставится через Magisk и заменяет
+  системные Bluetooth-файлы через systemless-оверлей; без root он не установится
+  и не заработает.
+- ECARX E02 / IHU717P (MediaTek MT6771, Android 9). На другом железе не
+  тестировался.
+- Перед установкой держите наготове резервный канал доступа (UART/ADB): модуль
+  перезапускает Bluetooth и меняет системные настройки.
 
 ## Установка
 
 Установить release ZIP через Magisk и перезагрузить ГУ.
 
-Актуальный артефакт:
+Актуальный артефакт (в `work/releases/`):
 
 ```text
-work/releases/ecarx_e02_ihu717p_bt_v2026.06.22.zip
+ecarx_e02_ihu717p_bt_v2026.06.30.zip
 ```
 
 Ожидаемый эффект от модуля:
@@ -101,13 +126,24 @@ work/releases/ecarx_e02_ihu717p_bt_v2026.06.22.zip
 
 ## Откат
 
-Штатные файлы вернутся после отключения/удаления модуля и перезагрузки ГУ.
-Откат также очищает импортированные через Bluetooth контакты и журнал звонков
-из `ContactsProvider` / `CallLogProvider`, потому что эти данные уже записаны
-в системные provider-базы и не удаляются простым `pm clear com.android.bluetooth`.
-Кроме этого, откат удаляет Bluetooth pairing/profile/GATT cache и btsnoop /
-firmware logs, чтобы после удаления модуля стоковый Bluetooth стартовал без
-хвостов экспериментального стека.
+Штатные файлы вернутся после отключения/удаления модуля и перезагрузки ГУ
+(оверлей systemless — реальный `/system` не меняется). При удалении модуль
+автоматически запускает `rollback.sh`, который возвращает ГУ в стоковое
+состояние:
+
+- возвращает `ro.ecarx.bt_ismtk=false` (стоковый ECARX/GOC-путь поднимется после
+  ребута, `gocsdk` снова запустится сам);
+- удаляет из `Settings.Global` навязанный `bluetooth_class_of_device` (CoD) и
+  сброшенные приоритеты профилей;
+- отзывает выданные runtime-права и сбрасывает appops для `com.android.bluetooth`;
+- очищает импортированные через Bluetooth контакты и журнал звонков из
+  `ContactsProvider` / `CallLogProvider` (они записаны в системные provider-базы
+  и не удаляются простым `pm clear com.android.bluetooth`);
+- удаляет данные приложения Bluetooth (включая OPP-базу, иначе стоковый Bluetooth
+  падает в цикле `Can't downgrade database`), pairing/profile/GATT cache и
+  btsnoop/firmware-логи.
+
+После удаления обязателен ребут, чтобы systemless-оверлеи исчезли.
 
 ## Поддержка автора
 
