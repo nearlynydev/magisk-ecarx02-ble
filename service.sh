@@ -132,3 +132,37 @@
   fi
   echo "$(date) final bt=$(dumpsys bluetooth_manager 2>/dev/null | grep -m1 'state:' | sed 's/^ *//') prop=$(getprop ro.ecarx.bt_ismtk) stpbt=$(ls /dev/stpbt 2>/dev/null)" >> "$LOG"
 ) &
+
+# Persistent watchdog. gocsdk (the stock GOC Bluetooth stack) is `disable`d in
+# /init.rc and can only be started by the event-driven trigger
+# `on property:ro.ecarx.bt_ismtk=false` - that trigger fires any time this
+# property changes to "false", not just at boot. The sequence above only
+# asserts the property once; if something flips it back later in the session
+# (observed as Bluetooth getting stuck off after a CarPlay session), gocsdk
+# restarts and fights the MTK/AOSP stack for the transport. This loop keeps
+# the property pinned and kills gocsdk if it ever reappears, for the life of
+# the boot session, and exits on its own once the module is disabled/removed.
+(
+  MODID=ecarx_e02_ihu717p_bt
+  MODDIR=/data/adb/modules/$MODID
+  WLOG=/data/adb/ecarx-bt-mtk-watchdog.log
+  echo "$(date) watchdog start" >> "$WLOG"
+  while true; do
+    sleep 15
+    if [ -f "$MODDIR/disable" ] || [ ! -d "$MODDIR" ]; then
+      echo "$(date) module disabled/removed, watchdog exiting" >> "$WLOG"
+      break
+    fi
+    cur="$(getprop ro.ecarx.bt_ismtk)"
+    if [ "$cur" != "true" ]; then
+      echo "$(date) ro.ecarx.bt_ismtk drifted to '$cur', restoring" >> "$WLOG"
+      resetprop ro.ecarx.bt_ismtk true 2>/dev/null || /sbin/resetprop ro.ecarx.bt_ismtk true 2>/dev/null || true
+    fi
+    if [ -n "$(pidof gocsdk 2>/dev/null)" ]; then
+      echo "$(date) gocsdk reappeared (pid=$(pidof gocsdk 2>/dev/null)), stopping" >> "$WLOG"
+      setprop ctl.stop gocsdk 2>/dev/null || true
+      killall gocsdk 2>/dev/null || true
+      resetprop ro.ecarx.bt_ismtk true 2>/dev/null || /sbin/resetprop ro.ecarx.bt_ismtk true 2>/dev/null || true
+    fi
+  done
+) &
