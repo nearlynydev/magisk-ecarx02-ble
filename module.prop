@@ -1,6 +1,6 @@
 id=ecarx_e02_ihu717p_bt
 name=IHU717P BLE/Classic Bluetooth support
-version=2026.07.19
-versionCode=20260719
+version=2026.07.19.1
+versionCode=20260720
 author=Dmitry Nearlyny
-description=Bluetooth support for ECARX E02 / IHU717P based Geely and Knewstar head units at the stock app path: A2DP Sink, HFP HF Client, PBAP Client, AVRCP Controller with working track metadata and physical media buttons (native libbluetooth.so AVRCP feature-negotiation fix), CarPlay/GOC watchdog. Force-connects A2DP Sink for phones that only offer Phone audio (e.g. Samsung Galaxy). NOTE: the stock NSMedia media app pauses Bluetooth unless the head-unit source is set to Bluetooth - select Bluetooth as the source (see README).
+description=Bluetooth support for ECARX E02 / IHU717P based Geely and Knewstar head units at the stock app path: A2DP Sink, HFP HF Client, PBAP Client, AVRCP Controller with working track metadata and physical media buttons (native libbluetooth.so AVRCP feature-negotiation fix), CarPlay/GOC watchdog. Force-connects A2DP Sink for phones that only offer Phone audio (e.g. Samsung Galaxy). Disables MAP MCE (profile_supported_mapmce=false) - it made Android links refuse sniff during calls (hci_status=26), starving BLE/HWGPS; MAP has no use here (no message pop-ups). NOTE: the stock NSMedia media app pauses Bluetooth unless the head-unit source is set to Bluetooth - select Bluetooth as the source (see README).

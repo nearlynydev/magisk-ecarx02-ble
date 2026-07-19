@@ -1032,3 +1032,53 @@ pause (select Bluetooth as the head-unit source — it holds while playing).
 - `dumpsys car_service` (BluetoothDeviceConnectionPolicy) and
   `dumpsys bluetooth_manager` (A2dpSinkStateMachine state, `Streaming audio
   channels mask`) were the key state sources.
+
+## 2026-07-19 — BLE/HWGPS freeze during calls: root-caused to MAP MCE
+
+Symptom: a connected BLE device (HWGPS, `org.astpepper.hwgps`, peer
+`1C:DB:D4:D0:BD:36`) stops receiving GATT notifications for the entire duration
+of a phone call on some Android phones (Samsung Galaxy S24), resuming instantly
+when the call ends. iPhone is unaffected.
+
+### Live A/B (iPhone vs S24), verbose BT (TRC=5)
+
+Both phones use mSBC/WBS with identical eSCO params (`lat 0x8, retrans 0x02,
+pkt 0x03c8`), so codec/eSCO are ruled out. During the call the head unit tries
+to return the phone's ACL link to sniff on a 7 s timer so BLE keeps getting
+slots:
+
+- **iPhone:** `bta_dm_pm_sniff idx:3, info:0x10/0x11` → `btm_pm_proc_mode_change
+  → SNIFF` succeeds; link oscillates SNIFF↔ACTIVE; `bta_dm_pm_ssr ssr:2,
+  lat:1200`. HWGPS notify_cb steady 7-8/s throughout.
+- **S24:** `bta_dm_pm_sniff idx:3, info:0x12` → `bta_dm_pm_btm_status
+  hci_status=26` (Unsupported Remote Feature); link stays ACTIVE; `ssr:0`.
+  notify_cb drops to ~0 for the whole call.
+
+`info` bits (`tBTA_DM_DEV_INFO`): `0x10`=USE_SSR, `0x01`=SET_SNIFF,
+`0x02`=INT_SNIFF. The S24's `0x12` = USE_SSR+**INT_SNIFF** path re-negotiates the
+existing interval-sniff and the controller rejects it during SCO; the iPhone's
+clean-sniff path (`0x10`) is accepted. `idx` (sniff-interval spec row) is the
+same (3) for both, so the sniff-interval spec table is not the lever.
+
+### The differentiator is the MAP (MCE) profile
+
+Empirically reducing the S24's connected profiles: with MAP connected the link
+takes the `info:0x12` freeze path; with MAP **not** connected it takes
+`info:0x10/0x11` and BLE survives. HFP-only and HFP+PBAP (MAP off) both keep
+notify_cb flowing.
+
+### Fix (shipped)
+
+Disable the MAP MCE client in the bundled `Bluetooth.apk`:
+`res/values/bools.xml` → `profile_supported_mapmce=false` (apktool rebuild,
+zipalign, re-sign with the device platform key — cert SHA-256 `c8a2e9bc…`,
+identical to the original so it installs in place). `AdapterServiceConfig` then
+never adds `MapClientService`; the profile list becomes A2dpSink / Avrcp
+Controller / Opp / Gatt / HeadsetClient / PbapClient. This is clean, unlike a
+runtime `pm disable` of the component, which leaves AdapterService retrying the
+start every ~2 s ("Unable to start MapClientService … not found") forever. This
+head unit has no message-notification UI, so MAP provided nothing.
+
+Verified live: ~20 s call with MAP off — `MceSM Connected=0`, `bta_dm_pm_sniff
+info:0x10`, HWGPS notify_cb zero drops. The candidate SSR / sniff-spec native
+`libbluetooth.so` patches from the earlier Ghidra pass turned out unnecessary.

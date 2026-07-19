@@ -257,3 +257,35 @@ spurious pause from a legitimate one. Both are deferred.
 **Workaround (reliable):** on the head unit, **select Bluetooth as the audio
 source once** — it holds while playing and the pause stops. Full teardown of the
 investigation is in `docs/BLE_RESEARCH_HISTORY.md`.
+
+---
+
+## v2026.07.19.1 — Fix BLE/HWGPS freezing during phone calls (disable MAP MCE)
+
+Symptom: on some Android phones (observed: Samsung Galaxy S24) a connected BLE
+device (HWGPS) **freezes for the whole duration of a phone call** — GATT
+notifications stop the moment call audio (SCO) starts and resume the instant it
+ends. iPhone is unaffected.
+
+Root cause (found by live A/B verbose capture, iPhone vs S24, identical mSBC/eSCO
+params): during a call the head unit tries to put the phone's ACL link into
+**sniff** so BLE keeps getting radio slots. The iPhone link sniffs fine
+(`bta_dm_pm_sniff info:0x10/0x11` → SNIFF ok, `ssr:2`). The S24 link takes the
+**INT_SNIFF** path (`bta_dm_pm_sniff info:0x12`) and the controller **rejects**
+it (`bta_dm_pm_btm_status hci_status=26`, "Unsupported Remote Feature"), so the
+link stays ACTIVE and SCO + active-ACL starve BLE. The differentiator is
+**MAP (Message Access, MCE client)**: with MAP connected the S24 link uses the
+0x12 path (freeze); with MAP not connected it uses 0x10 (BLE survives).
+
+Fix: disable the MAP MCE client in the bundled `Bluetooth.apk`
+(`res/values/bools.xml`: `profile_supported_mapmce=false`, re-signed with the
+device platform key `c8a2e9bc`). `AdapterServiceConfig` then never adds
+`MapClientService` — clean, with none of the retry-loop log spam that a runtime
+`pm disable` of the component produces. This head unit has no message-notification
+UI, so MAP provided nothing. Verified live: a ~20 s call with MAP off keeps
+HWGPS GATT notifications flowing with zero drops (`info:0x10`, no `hci_status=26`
+stall). Removing the module reverts to the stock Bluetooth app (MAP intact).
+
+Prior candidate SSR / sniff-spec native patches were investigated and turned out
+**unnecessary** — the real lever was the MAP profile. Full teardown in
+`docs/BLE_RESEARCH_HISTORY.md`.
