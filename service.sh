@@ -166,3 +166,46 @@
     fi
   done
 ) &
+
+# --------------------------------------------------------------------------
+# Bring up A2DP Sink for phones that connect HFP/PBAP but never offer
+# media audio.
+#
+# Some phones (observed: Samsung S24) cache an incomplete SDP record for the
+# head unit and then show no "Media audio" toggle, so they connect Phone audio
+# only and A2DP never comes up. The head unit CAN sink A2DP (iPhone works), so
+# the fix is to initiate the A2DP Sink connection from the head unit side - that
+# brings the media link up regardless of the phone's stale cache, and also
+# registers the device with the car BluetoothDeviceConnectionPolicy for future
+# auto-connects. The privileged reflection call lives in the bundled
+# com.ecarx.btautosource priv-app; this loop just triggers it when needed. The
+# helper is idempotent (connect() returns false if already up).
+(
+  MODID=ecarx_e02_ihu717p_bt
+  MODDIR=/data/adb/modules/$MODID
+  ALOG=/data/adb/ecarx-bt-autosource.log
+  for i in $(seq 1 120); do
+    [ "$(getprop sys.boot_completed)" = "1" ] && break
+    sleep 1
+  done
+  echo "$(date) a2dp-connect watcher start" >> "$ALOG"
+  last_try=0
+  while true; do
+    sleep 12
+    if [ -f "$MODDIR/disable" ] || [ ! -d "$MODDIR" ]; then
+      echo "$(date) module disabled/removed, a2dp-connect watcher exiting" >> "$ALOG"
+      break
+    fi
+    dump="$(dumpsys bluetooth_manager 2>/dev/null)"
+    # A2DP Sink already up? nothing to do.
+    echo "$dump" | grep 'A2dpSinkStateMachine' | grep -q 'state=Connected' && continue
+    # Any phone currently connected (some client profile has a live device)?
+    addr="$(echo "$dump" | grep 'mCurrentDevice:' | grep -oE '[0-9A-Fa-f:]{17}' | head -1)"
+    [ -n "$addr" ] || continue
+    now=$(date +%s)
+    [ $((now - last_try)) -ge 40 ] || continue
+    last_try=$now
+    echo "$(date) phone $addr connected but A2DP Sink down -> requesting connect" >> "$ALOG"
+    am start -n com.ecarx.btautosource/.A2dpConnectActivity --es addr "$addr" >/dev/null 2>&1
+  done
+) &

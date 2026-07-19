@@ -192,3 +192,68 @@ https://pay.cloudtips.ru/p/627dbed1
 Обсуждение, вопросы по установке и обратная связь — в Telegram-группе:
 
 https://t.me/ecarx02_ble
+
+---
+
+## v2026.07.19 — A2DP Sink force-connect (+ NSMedia auto-pause investigation)
+
+### Shipped fix — A2DP Sink never connects (phone shows Phone-audio only)
+
+Some phones (observed: Samsung Galaxy S24) cache an incomplete SDP record for
+the head unit, show **no "Media audio" toggle**, and connect HFP/PBAP only —
+A2DP never comes up. The head unit's own A2DP Sink works (iPhone uses it), so the
+fix is to **initiate the A2DP Sink connection from the head unit side**, which
+brings the link up regardless of the phone's stale cache and also registers the
+device with the car `BluetoothDeviceConnectionPolicy` for later auto-connects.
+
+The privileged call `BluetoothA2dpSink.connect()` is hidden API, so it lives in a
+bundled system app `com.ecarx.btautosource` (`/system/app/EcarxBtAutoSource`,
+listed in `hiddenapi-package-whitelist.xml`; placed in `/system/app`, not
+priv-app, so it needs no `privapp-permissions` entry and cannot bootloop). A
+`service.sh` loop watches for a connected phone with A2DP Sink still down and
+fires the helper (idempotent — `connect()` returns false if already up):
+
+```
+am start -n com.ecarx.btautosource/.A2dpConnectActivity --es addr AA:BB:CC:DD:EE:FF
+```
+
+The loop self-exits when the module is disabled/removed. Log:
+`/data/adb/ecarx-bt-autosource.log`. Validated live on an S24:
+`A2dpSinkStateMachine 0->1->2 CONNECTED`, streaming, and the phone registered in
+the car connection policy.
+
+### Investigated, NOT auto-fixed — spurious BT auto-pause ("plays 1s, then pauses")
+
+Root cause (confirmed live): the stock ECARX media app `com.ecarx.multimedia`
+(NSMedia) only lets Bluetooth audio play when the head unit's selected
+**external source** is Bluetooth. With the source on FM/AM/etc, its
+`BTMusicStateManagerP` sends AVRCP PASS-THROUGH **PAUSE** at the phone, logging
+`bt pause but current external is not bt`. This is **source-selection, not phone
+brand** — iPhone is affected identically when the source is not Bluetooth (the
+old "iPhone just works" belief was because its source happened to already be
+Bluetooth).
+
+Switching the source to Bluetooth stops it. NSMedia has no clean binder API for
+that (the MediaCenter widget AIDL `onWidgetSourceSelected` is radio-centric;
+`selectMediaPlay`/`handleCtrlApp` no-op for BT). The one thing that works is
+NSMedia's **activity router**:
+
+```
+am start -n com.ecarx.multimedia/.MainActivity --es route \
+ '{"currentJump":"activityMain","showIndex":4,"nextJump":{"currentJump":"mainBluetooth","showIndex":4}}'
+```
+
+**Why there is no automatic fix (yet).** A timing capture showed NSMedia sends
+the PAUSE only **~28 ms** after it sees the phone start playing
+(`onPlayStateChange:10` → `RC_COMMAND_PAUSE` at +28 ms). A userspace watcher
+(`logcat` → `am start` → NSMedia processes the route) takes hundreds of ms, so it
+**cannot win that race**. On top of that the router switch is transient (the
+source reverts to FM within seconds when Bluetooth is not actively streaming) and
+no-ops when NSMedia is already foreground. A reliable fix needs either a runtime
+hook into NSMedia's pause decision (the class is Mars-xlog string-obfuscated, so
+not a plain smali patch) or a native AVRCP change that can't cleanly tell the
+spurious pause from a legitimate one. Both are deferred.
+
+**Workaround (reliable):** on the head unit, **select Bluetooth as the audio
+source once** — it holds while playing and the pause stops. Full teardown of the
+investigation is in `docs/BLE_RESEARCH_HISTORY.md`.

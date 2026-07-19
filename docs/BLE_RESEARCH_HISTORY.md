@@ -912,3 +912,123 @@ Runtime policy:
   - ECARX audio HAL gain/routing.
 - macOS AppleDouble files are not harmless in Android app directories. A
   `._Bluetooth.apk` file can make PackageManager reject the whole app directory.
+
+## 2026-07-19 — Android media: A2DP Sink force-connect + NSMedia auto-pause
+
+Live investigation on an IHU717P (root, adb) driven by two Android-phone
+complaints: (1) music "plays for a second then pauses", (2) the phone connects
+but has no media audio ("calls only"). iPhone was reported fine. Both turned out
+to be head-unit-side, and the "iPhone is fine" belief was wrong.
+
+### Auto-pause root cause (symptom 1)
+
+The stock ECARX media app `com.ecarx.multimedia` (NSMedia; the `[XCMedia2Log]`
+logger) enforces that Bluetooth audio may only play when the head unit's selected
+**external source** is Bluetooth. Live log at the moment of the pause:
+
+```
+BluetoothManager: isCurrentBtAudio   current external = fm
+[XCMedia2Log]BTMusicStateManagerP: bt pause but current external is not bt status:11
+BTMusicActionImpl: pause:true
+[XCMedia2Log]BTMusicStateManagerP: checkAndSendControl = RC_COMMAND_PAUSE ,isSuccess = true
+bt_btif: send_passthrough_cmd   (AVRCP PASS-THROUGH PAUSE, key 0x46, to the phone)
+```
+
+`com.ecarx.multimedia` = `/system/app/NSMedia/NSMedia.apk`, build
+`NSMedia_202408011547`. The pause class `BTMusicStateManagerP` and its messages
+are **not** plaintext in the dex/vdex (Mars-xlog string obfuscation; only the
+`XCMedia2Log` prefix is a literal), so it cannot be located by log string and is
+not a plain smali patch target. The determinant is **only** `current external`,
+not the phone brand: with the source on FM the iPhone is paused exactly like the
+S24. Earlier "iPhone just works" measurements simply had the source already on
+Bluetooth.
+
+### Who owns auto-connect: car policy, not PhonePolicy
+
+A2DP auto-connect on the head unit is managed by the car service
+`com.android.car.BluetoothDeviceConnectionPolicy` (in `CarService.apk`), not by
+`com.android.bluetooth`'s `PhonePolicy`. `dumpsys car_service` confirmed it live:
+the policy is active and tracks HFP/PBAP/MAP/PAN/**A2DP_SINK**; `mProfilesToConnect`
+includes `A2DP_SINK` (0xb). The ECARX variant `ECarxBluetoothDeviceConnectionPolicy`
+keys off remote UUIDs including `AudioSource` (0x110A). Our transplanted stack
+also starts its own `PhonePolicy` (gated by `config_bluetooth_phone_policy_enabled`,
+`R.bool` id `0x7f020001`, `AdapterService` ~line 5131), whose
+`setAutoConnectForA2dpSink` is wired to the source-side `getA2dpService()`
+(null on this sink-only build) — a dead end for A2DP Sink. The real symptom for
+the S24 was that the phone advertised no A2DP (stale SDP cache, no "Media audio"
+toggle), so the car policy had it with `A2DP_SINK #Paired = 0`.
+
+### A2DP Sink force-connect (symptom 2 — SHIPPED)
+
+Initiating the A2DP Sink connection from the head unit brings the link up
+regardless of the phone's stale cache. Live result on the S24:
+
+```
+BluetoothA2dpSink.connect(48:EF:1C:15:5F:D5) -> true
+bta_av_start_ok: peer 48:ef:1c:15:5f:d5 ... AVDT_CONNECT_IND_EVT
+A2dpSinkStateMachine: Connection state 0->1->2  (CONNECTED), A2DP Playing state 10->11
+```
+
+It also registered the device in the car policy (`A2DP_SINK #Paired 0 -> 1`).
+`BluetoothA2dpSink.connect()` is hidden API; on Android 9 it is blocked from
+reflection for a normal app (dark-greylist), so it is packaged as the bundled
+system app `com.ecarx.btautosource` in `/system/app` (listed in the module's
+`hiddenapi-package-whitelist.xml`; `/system/app` rather than priv-app to avoid any
+priv-app permission bootloop — the call only needs `BLUETOOTH_ADMIN`). A
+`service.sh` loop fires it (idempotent) when a phone is connected but A2DP Sink is
+still down.
+
+### Source-switch options tried (symptom 1)
+
+To force the source to Bluetooth programmatically:
+
+- `IMediaCenterWidgetApiSvc.onWidgetSourceSelected(2 /*SOURCE_TYPE_BT*/)` — bind
+  to `ecarx.xsf.mediacenter/.MediaCenterService` (action
+  `ecarx.xsf.ACTION_MEDIA_CENTER_WIDGET_API_SERVICE`) and transact. Reaches
+  NSMedia but is **radio-centric** in this build (switched to FM, not BT).
+  `selectMediaPlay(2, "")` and `handleCtrlApp(2,1)` no-op.
+- **NSMedia activity router — the only thing that works.** Launch its
+  `MainActivity` with a `RouteAction` JSON to the Bluetooth screen (`showIndex 4`
+  = `RouteConstant.MAIN_INDEX_BLUETOOTH`, key `route`); a flat `"mainBluetooth"`
+  string gives "No route info":
+
+  ```
+  am start -n com.ecarx.multimedia/.MainActivity --es route \
+   '{"currentJump":"activityMain","showIndex":4,"nextJump":{"currentJump":"mainBluetooth","showIndex":4}}'
+  ```
+
+  Result: `PlayControl switchEngineByExternal: bt`, `curExternal = bt,301`,
+  `plugin-external ... type:42008 jsonData:301 switchExternal`, and the pauses
+  stop.
+
+### Why symptom 1 has no automatic fix (deferred)
+
+A timing capture is decisive:
+
+```
+onPlayStateChange:10 (playing), isCurrentBtAudio: current external = fm   @ T
+checkAndSendControl = RC_COMMAND_PAUSE                                    @ T + ~28 ms
+```
+
+NSMedia pauses **~28 ms** after it sees the stream start. A userspace watcher
+(`logcat` → `am start` → NSMedia route processing) is hundreds of ms, so it
+cannot prevent the pause. Additionally the router switch is transient (the source
+reverts to FM within seconds when Bluetooth is not actively streaming) and no-ops
+when NSMedia is already foreground. A reliable fix would require a runtime hook
+into NSMedia's obfuscated pause decision, or a native AVRCP change that can tell
+the spurious pause from a legitimate one — both deferred. A `service.sh` watcher
+that fired the router on the pause line was prototyped and **removed**: it lost
+the 28 ms race and, by spamming the route, left NSMedia stuck foreground.
+
+**Decision:** ship the A2DP force-connect; keep the manual workaround for the
+pause (select Bluetooth as the head-unit source — it holds while playing).
+
+### Tooling notes
+
+- NSMediaCenter (`ecarx.xsf.mediacenter`) is not obfuscated; deodex via
+  `vdexExtractor` → `.cdex` → `compact_dex_converter` → baksmali.
+- Helper APK build: `javac --release 11` + `d8 --min-api 28` + `aapt2 link` +
+  `zipalign` + `apksigner` (build-tools 36.1.0), debug keystore.
+- `dumpsys car_service` (BluetoothDeviceConnectionPolicy) and
+  `dumpsys bluetooth_manager` (A2dpSinkStateMachine state, `Streaming audio
+  channels mask`) were the key state sources.

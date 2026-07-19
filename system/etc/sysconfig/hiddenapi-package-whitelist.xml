@@ -61,4 +61,6 @@ platform cert need to be included, as apps signed with the platform cert are exe
   <!-- END: 应用市场加到隐私API调用白名单中... by  jianhui.qiu 2020.12.25 IHU509G-477.-->
   <!-- ECARX IHU717P: Bluetooth APK is not platform-signed after deodex patching. -->
   <hidden-api-whitelisted-app package="com.android.bluetooth" />
+  <!-- ECARX IHU717P: BT auto-source helper reflects on hidden BluetoothA2dpSink.connect(). -->
+  <hidden-api-whitelisted-app package="com.ecarx.btautosource" />
 </config>
