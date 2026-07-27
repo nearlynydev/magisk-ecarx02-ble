@@ -289,3 +289,72 @@ stall). Removing the module reverts to the stock Bluetooth app (MAP intact).
 Prior candidate SSR / sniff-spec native patches were investigated and turned out
 **unnecessary** — the real lever was the MAP profile. Full teardown in
 `docs/BLE_RESEARCH_HISTORY.md`.
+
+---
+
+## v2026.07.19.2 — AVRCP-safe MAP disable; A2DP force-connect removed
+
+Two changes over v2026.07.19.1:
+
+- **MAP MCE now disabled without touching classes.dex.** v2026.07.19.1 flipped
+  `profile_supported_mapmce` by rebuilding the whole APK with apktool, which
+  recompiles `classes.dex` from smali — that regressed AVRCP on iOS (track
+  switching from the head unit and track-info transfer stopped). This build
+  instead binary-patches the single bool value in `resources.arsc` (4 bytes,
+  `0xFFFFFFFF` → `0`) on the original APK, so **`classes.dex` stays byte-identical**
+  to the known-good v2026.07.19 build (verified by SHA-256) and is re-signed with
+  the device platform key. MAP stays off, AVRCP is untouched.
+- **A2DP Sink force-connect helper removed.** The `com.ecarx.btautosource` system
+  app and its `service.sh` watcher are gone, to observe stock A2DP connection
+  behaviour. It remains in git history if needed again.
+
+---
+
+## v2026.07.27 — Fix missing AVRCP track metadata (GetCapabilities race)
+
+Symptom (reported on iOS, reproduced live): BT music plays and the steering-wheel
+buttons work, but the head unit shows no track info and track switching from the
+HU does nothing. The stock ECARX firmware does not have this problem.
+
+Root cause (proven with an A/B against stock plus a verbose capture — full
+teardown in `work/bt_stock_vs_module/`): our stack brings the **AVRCP link up
+before A2DP** and immediately issues `GetCapabilities(COMPANY_ID)`. The phone is
+still establishing A2DP and does not answer in time:
+
+```
+15:06:50.358  getcapabilities_cmd: cap_id: 2
+15:06:52.359  handle_get_capability_response: Error capability response: 0xFE   <- timeout
+```
+
+AOSP's `btif_rc.cc` then returns early — the upstream TODO
+`/* Todo: Do we need to retry on command timeout */` is still unfixed as of
+Android 14 — so `EVENTS_SUPPORTED` is never queried and `RegisterNotification`
+is never sent. Metadata is dead for the whole session, while passthrough and
+absolute volume keep working (hence "buttons work, no track info").
+
+There is no retry either, because `handle_rc_ctrl_features()` latches
+`p_dev->rc_features_processed = true` on that first attempt. The latch also makes
+the *next* feature event drop `BTRC_FEAT_METADATA` from the value reported to the
+Java controller (observed: CTRL `0` → `3` → `2`).
+
+Fix: NOP that latch store in `libbluetooth.so`
+(`work/tools/patch_libbluetooth_avrcp_metadata_retry.py`, vaddr `0x1afd60`).
+Each feature event then re-runs the block, so `GetCapabilities` is retried — by
+the later events A2DP is up and it succeeds — and `BTRC_FEAT_METADATA` stays set.
+
+Verified live on the same iPhone that failed before:
+
+```
+15:06:55.836  getcapabilities_cmd: cap_id: 2     <- retry
+15:06:55.844  getcapabilities_cmd: cap_id: 3     <- EVENTS_SUPPORTED, succeeded
+RegisterNotification: 36                          (was 0)
+btavrcp_track_changed_callback: 11                (was 0)
+BTMusicManager: title : Stars, album : Stars, artist : Simply Red
+```
+
+Upstream AOSP fixes the same race differently (Android 16): it defers
+`GetCapabilities` until A2DP is connected (`btif_av_is_connected_addr(...)`,
+otherwise `launch_cmd_pending |= RC_PENDING_ACT_GET_CAP`). Porting that needs new
+code; swapping the existing `btif_av_is_sink_enabled()` call for
+`btif_av_is_connected()` was considered and rejected — the latter resolves the
+*active* peer, which is not reliably set at that point on this build.

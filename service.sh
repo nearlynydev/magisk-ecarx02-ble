@@ -168,18 +168,21 @@
 ) &
 
 # --------------------------------------------------------------------------
-# Bring up A2DP Sink for phones that connect HFP/PBAP but never offer
-# media audio.
+# Bring up A2DP Sink for phones that connect HFP/PBAP but never offer media
+# audio.
 #
-# Some phones (observed: Samsung S24) cache an incomplete SDP record for the
-# head unit and then show no "Media audio" toggle, so they connect Phone audio
-# only and A2DP never comes up. The head unit CAN sink A2DP (iPhone works), so
-# the fix is to initiate the A2DP Sink connection from the head unit side - that
-# brings the media link up regardless of the phone's stale cache, and also
-# registers the device with the car BluetoothDeviceConnectionPolicy for future
-# auto-connects. The privileged reflection call lives in the bundled
-# com.ecarx.btautosource priv-app; this loop just triggers it when needed. The
-# helper is idempotent (connect() returns false if already up).
+# Verified live on a Samsung S24 (2026-07-27): the phone advertises AudioSource
+# (0x110a) and PhonePolicy does receive the UUID and store a priority
+# ("BluetoothA2dpSink: setPriority(..., 100)"), but nothing ever calls connect()
+# - the stock auto-connect path runs through getA2dpService(), the A2DP *source*
+# service, which is null on this sink-only build. The phone also offers no
+# "Media audio" toggle, so the user cannot start it either, and A2DP simply
+# stays disconnected ("calls only"). Removing this watcher in v2026.07.19.2
+# reproduced exactly that, which is why it is back.
+#
+# The privileged BluetoothA2dpSink.connect() reflection lives in the bundled
+# com.ecarx.btautosource system app; this loop only triggers it, and the helper
+# is idempotent (connect() returns false when the link is already up).
 (
   MODID=ecarx_e02_ihu717p_bt
   MODDIR=/data/adb/modules/$MODID
@@ -197,9 +200,7 @@
       break
     fi
     dump="$(dumpsys bluetooth_manager 2>/dev/null)"
-    # A2DP Sink already up? nothing to do.
     echo "$dump" | grep 'A2dpSinkStateMachine' | grep -q 'state=Connected' && continue
-    # Any phone currently connected (some client profile has a live device)?
     addr="$(echo "$dump" | grep 'mCurrentDevice:' | grep -oE '[0-9A-Fa-f:]{17}' | head -1)"
     [ -n "$addr" ] || continue
     now=$(date +%s)

@@ -1082,3 +1082,165 @@ head unit has no message-notification UI, so MAP provided nothing.
 Verified live: ~20 s call with MAP off — `MceSM Connected=0`, `bta_dm_pm_sniff
 info:0x10`, HWGPS notify_cb zero drops. The candidate SSR / sniff-spec native
 `libbluetooth.so` patches from the earlier Ghidra pass turned out unnecessary.
+
+## 2026-07-27 — AVRCP track metadata: GetCapabilities race (fixed)
+
+Reported on iOS: BT music plays, steering-wheel buttons work, but the head unit
+shows no track info and HU-side track switching does nothing. Stock ECARX
+firmware is unaffected.
+
+### Method: A/B against stock
+
+The module was removed, the head unit booted to the stock CSR/GOC stack, and the
+same iPhone was paired and exercised (call + music + buttons). Then the module
+was reinstalled and the same cycle repeated. Logs in `work/bt_stock_vs_module/`.
+
+| Run | AVRCP up | A2DP up | Order | metadata |
+|---|---|---|---|---|
+| stock | 13:53:26 | 13:53:22 | **A2DP → AVRCP** | 164 events |
+| module, MAP off | 14:10:56 | 14:10:58 | AVRCP → A2DP | 0 |
+| module, MAP on | 14:17:56 | 14:17:58 | AVRCP → A2DP | 0 |
+| module, fresh pairing | 14:34:57 | 14:34:58 | AVRCP → A2DP | 0 |
+
+Ruled out by these runs: the MAP profile (A/B on/off), the bond cache (full
+unpair plus re-pair), our own module deltas (`Bluetooth.apk` and
+`libbluetooth.so` were byte-identical to the last known-good build;
+`mtk_bt_stack.conf` differed only in trace levels), the A2DP force-connect
+helper, and the phone itself.
+
+### Root cause
+
+A verbose capture (`TRC_AVRC/BTIF/SDP=5`) showed the mechanism:
+
+```
+bta_av_rc_opened: rcb[0] shdl:0                       AVRCP opens before A2DP
+btif_rc_handler: Peer_features: 3    -> CTRL: 0
+btif_rc_handler: Peer_features: 24b  -> CTRL: 3       (METADATA present)
+  getcapabilities_cmd: cap_id: 2
+  build_and_send_vendor_cmd: AVRC_PDU_GET_CAPABILITIES
+BTA_AV_OPEN_EVT  StateOpening -> StateOpened          A2DP finishes 1.1 s later
+btif_rc_handler: Peer_features: 24b  -> CTRL: 2       (METADATA dropped)
+handle_get_capability_response: Error capability response: 0xFE    timeout
+```
+
+`BTRC_FEAT_*`: 1 = METADATA, 2 = ABSOLUTE_VOLUME, 4 = BROWSE.
+
+Two defects combine, both in `handle_rc_ctrl_features()` / the capability path:
+
+1. `GetCapabilities(COMPANY_ID)` is issued while A2DP is still connecting. The
+   phone does not answer within the AVRCP timeout, so
+   `handle_get_capability_response()` takes AOSP's early `return` — the upstream
+   TODO `/* Todo: Do we need to retry on command timeout */` is still unfixed as
+   of Android 14. `EVENTS_SUPPORTED` is never queried and `RegisterNotification`
+   is never sent, so metadata is dead for the whole session.
+2. `p_dev->rc_features_processed = true` latches on that first attempt, so the
+   block never runs again — no retry, and the next feature event reports the
+   controller a value without `BTRC_FEAT_METADATA` (the `3 → 2` above).
+
+### Fix
+
+NOP the latch store, so every `BTA_AV_RC_FEAT_EVT` re-runs the block:
+
+```
+vaddr 0x1afd60 (foff 0x174d60)   strb w9, [x8]  0x39000109  ->  nop  0xd503201f
+```
+
+Tool: `work/tools/patch_libbluetooth_avrcp_metadata_retry.py` (verifies the
+original word before patching, supports `--revert`). `rc_features_processed` has
+no other consumer in Android 9 (`btif_rc.cc` lines 471/478, reset on connect), so
+the NOP is self-contained.
+
+Verified live on the same iPhone that failed before:
+
+```
+15:06:50.358  getcapabilities_cmd: cap_id: 2
+15:06:52.359  Error capability response: 0xFE      first attempt still times out
+15:06:55.836  getcapabilities_cmd: cap_id: 2       retry (enabled by the NOP)
+15:06:55.844  getcapabilities_cmd: cap_id: 3       EVENTS_SUPPORTED, succeeded
+RegisterNotification: 36                            (was 0)
+btavrcp_track_changed_callback: 11                  (was 0)
+btavrcp_play_status_changed_callback: 15            (was 0)
+BTMusicManager: title : Stars, album : Stars, artist : Simply Red
+```
+
+### Upstream comparison
+
+Android 16 fixes the same race in `handle_rc_ctrl_features()` by deferring the
+command until A2DP is connected:
+
+```c
+if (btif_av_is_connected_addr(p_dev->rc_addr, A2dpType::kSink)) {
+  ...
+  getcapabilities_cmd(AVRC_CAP_COMPANY_ID, p_dev);
+} else {
+  p_dev->launch_cmd_pending |= (RC_PENDING_ACT_GET_CAP | RC_PENDING_ACT_REG_VOL);
+}
+```
+
+Porting that needs new code (a pending-command queue fired on A2DP connect).
+Swapping the existing `btif_av_is_sink_enabled()` call for `btif_av_is_connected()`
+was considered and rejected: the latter resolves the *active* peer, which is not
+reliably set at that point on this build, and would risk suppressing the command
+entirely. The retry approach achieves the same end state with one instruction.
+
+Cost: `handle_get_capability_response()` allocates a fresh
+`rc_supported_event_list` per successful response without freeing the previous
+one, so a few small leaks per connection are possible — bounded by the handful of
+feature events per connect, and judged acceptable.
+
+## Delta against the donor — what we changed and why
+
+Donor baseline: **Cubot X20 Pro V07** (Android 9 / MT6771), kept at
+`work/ble_patch/full_transplant_candidates/03_cubot_x20pro_v07_minimal_bt/payload/`.
+(Oukitel C21 V08 was evaluated and rejected — Android 10 / VNDK 29 against the
+head unit's Android 9 / VNDK 28.) The `restore_payload/` tree in the same folder
+holds the head unit's own stock files.
+
+### `libbluetooth.so` — exactly three native patches
+
+Byte diff donor → shipped (same file size, three 4-byte words changed;
+geometry `vaddr = foff + 0x3b000`):
+
+| foff | vaddr | before → after | why |
+|---|---|---|---|
+| `0x085fac` | `0x0c0fac` | `cbz w8, …` `0x340005e8` → `nop` | `bta_av_rc_disc_done`: AVRCP CT feature negotiation was gated on our own local AVRCP SDP handle, which stock code only creates when registering the A2DP **Source** role. Sink-only build ⇒ handle stays `0` ⇒ no GetCapabilities / RegisterNotification / metadata at all. Removing the check restores media buttons and track info. |
+| `0x121fe8` | `0x15cfe8` | `mov w22, wzr` `0x2a1f03f6` → `mov w22, #1` `0x52800036` | `bta_av_co_audio_init`: the MTK build registered no local **sink** AVDTP SEPs, so A2DP could connect but never stream — no music. |
+| `0x174d60` | `0x1afd60` | `strb w9, [x8]` `0x39000109` → `nop` | `handle_rc_ctrl_features`: drops the `rc_features_processed` latch so `GetCapabilities` is retried after its first attempt races A2DP setup and times out (`0xFE`). See the 2026-07-27 entry. |
+
+### `Bluetooth.apk` — role flip from phone to head unit
+
+Profile bools, donor → ours:
+
+| bool | donor (phone) | ours (head unit) |
+|---|---|---|
+| `a2dp` | true | **false** |
+| `a2dp_sink` | false | **true** |
+| `avrcp_target` | true | **false** |
+| `avrcp_controller` | false | **true** |
+| `hs_hfp` | true | **false** |
+| `hfpclient` | false | **true** |
+| `pbap` | true | **false** |
+| `pbapclient` | false | **true** |
+| `map` | true | **false** |
+| `mapmce` | false | false (kept off — see the MAP/BLE entry) |
+| `hdp`, `hid_device`, `hid_host`, `pan`, `sap` | true | **false** (not useful in a car) |
+| `gatt`, `opp` | true | true (unchanged) |
+
+Code patches inside the APK (documented in the sections above): A2DP Sink audio
+focus request, `HfpClientConnection.updateCall()` → `connectAudio()` for call
+audio, and the PBAP client auto-sync/`addAccount` retry work.
+
+Everything else the module does lives outside the APK — `service.sh` (car Class
+of Device, runtime grants/appops, profile priority reset, `gocsdk` watchdog) and
+the transplanted MTK libraries/configs.
+
+### Consequence worth remembering
+
+`avrcp_controller` false → **true** is what activates AOSP's
+`AvrcpControllerStateMachine`. That class applies remote AVRCP absolute-volume
+commands to the local stream **unconditionally**
+(`setStreamVolume(STREAM_MUSIC, maxVol * absVol / 127)`), which the donor never
+ran (it was an AVRCP target) and which the head unit's own stock CSR stack does
+not implement at all (zero absolute-volume events in the stock capture). Any
+absolute-volume misbehaviour is therefore inherent to the CT path we enabled,
+not to the three native patches.
