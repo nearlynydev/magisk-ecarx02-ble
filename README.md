@@ -358,3 +358,55 @@ otherwise `launch_cmd_pending |= RC_PENDING_ACT_GET_CAP`). Porting that needs ne
 code; swapping the existing `btif_av_is_sink_enabled()` call for
 `btif_av_is_connected()` was considered and rejected — the latter resolves the
 *active* peer, which is not reliably set at that point on this build.
+
+---
+
+## Correction (2026-07-28) — MAP disable does not fix the in-call BLE freeze
+
+The v2026.07.19.1 section above claims that disabling MAP MCE fixed BLE/HWGPS
+freezing during calls. **That claim is wrong.** A per-second measurement on the
+shipped v2026.07.27.1 build, with MAP already off, shows GATT notifications at
+6.9/s before a call, **0.0/s for the entire 26-second call**, and 7.3/s after -
+i.e. unchanged from the original defect. The same picture appears on a slimmed
+test build, so it is not related to payload changes either.
+
+The earlier runs that seemed to prove MAP differed in more than MAP (call
+length, link idle state, and in the MAP-on retest the MAP profile never actually
+connected). Correlation was mistaken for causation.
+
+MAP MCE remains disabled in the current build, but **not** for the reason stated
+earlier - the only observable effect is that the iOS "Messages" toggle
+disappears. Whether to keep it disabled is an open decision.
+
+The real lead is unchanged and still open: with identical mSBC/eSCO parameters
+the iPhone link carries `ssr:2` and its in-call sniff requests succeed, while the
+S24 link has `ssr:0` and its request is refused with `hci_status=26`, so the link
+stays ACTIVE and SCO starves LE. See `docs/BLE_RESEARCH_HISTORY.md`.
+
+---
+
+## v2026.07.28 — MAP re-enabled, payload slimmed by 3.8 MB
+
+**MAP MCE is enabled again.** It was disabled in v2026.07.19.1 on the belief that
+it caused the in-call BLE freeze; that was disproven (see the correction above),
+and its only real effect was that the iOS "Messages" toggle disappeared. The APK
+here is byte-identical to the pre-v2026.07.19.1 one apart from that single flag.
+
+**13 files (3.8 MB) removed**, each verified on hardware in three stages:
+
+- vendor diagnostics: `libbluetooth_hw_test.so`, `libbluetooth_mtk_pure.so`
+- donor audio-HAL leftovers: `android.hardware.audio@2.0.so`,
+  `audio.common@2.0.so`, `audio.common@2.0-util.so`, `audio.effect@2.0.so`,
+  `hw/audio.a2dp.default.so`, `libfmq.so`, `libprocessgroup.so`, and both
+  `a2dp_audio_policy_configuration.xml` copies
+- **global library overlays**: `lib64/libchrome.so`, `lib64/libbase.so`
+
+The last group matters most: the module used to overlay those two system-wide, so
+*every* process - not just Bluetooth - was getting the donor build. Bluetooth
+keeps its own app-local copies in `system/app/Bluetooth/lib/arm64/`, and with the
+overlays gone the rest of the system runs stock libraries again.
+
+Every removed file already exists in the head unit's stock image, so the module
+was shadowing them rather than adding anything; removal simply restores stock.
+After each stage BT reached `state: ON` with A2DP/HFP/AVRCP/PBAP connected and
+music, call audio and contacts all working.

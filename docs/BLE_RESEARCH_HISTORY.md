@@ -1244,3 +1244,49 @@ ran (it was an AVRCP target) and which the head unit's own stock CSR stack does
 not implement at all (zero absolute-volume events in the stock capture). Any
 absolute-volume misbehaviour is therefore inherent to the CT path we enabled,
 not to the three native patches.
+
+## 2026-07-28 — CORRECTION: disabling MAP does NOT fix the in-call BLE freeze
+
+The 2026-07-19 conclusion above ("MAP MCE is the culprit") is **disproven**. A
+strict per-second measurement on the shipped build, with MAP already disabled,
+shows the freeze is unchanged.
+
+`v2026.07.27.1`, `TRC_BTIF=5`, Galaxy S24 + HWGPS (`org.astpepper.hwgps`),
+log `work/bt_stock_vs_module/ble_call_base271.log`:
+
+| period | GATT notify |
+|---|---|
+| before call | 6.9 /s |
+| **during call (26 s)** | **0.0 /s - zero for every one of the 26 seconds** |
+| after call | 7.3 /s |
+
+Cross-checked on the `slim_A` build (`ble_call_slimA.log`): call 1 (9 s) 1.6/s
+with 8 of 9 seconds at zero, call 2 (30 s) 0.0/s throughout. Identical picture,
+so the payload-slimming work is unrelated to this defect.
+
+**Why the earlier conclusion was wrong.** The 2026-07-19 runs that appeared to
+prove MAP differed in more than MAP: call duration, whether the link had been
+idle beforehand, and - decisively - in the MAP-on retest `MceSM` never actually
+reached Connected, so the variable under test was never really applied.
+Correlation was read as causation.
+
+A second error, made and corrected on 2026-07-28, is worth recording: an initial
+per-second count reported "only an 8 s dropout", because the assumed call window
+spanned call 1 plus the idle gap between two calls while excluding call 2
+entirely. Re-deriving the windows from the Telecom `SET_DIALING` /
+`SET_DISCONNECTED` timestamps gave the correct result above.
+
+**What still stands** is the iPhone-versus-S24 comparison (identical mSBC and
+eSCO parameters): the iPhone link carries `ssr:2 lat:1200` and its in-call sniff
+requests (`info:0x10/0x11`) succeed, while the S24 link has `ssr:0` and its
+single request (`info:0x12`, i.e. USE_SSR + INT_SNIFF) is refused with
+`hci_status=26` (Unsupported Remote Feature), leaving the link ACTIVE. The
+sniff-interval spec row (`idx`) is the same for both, so that table is not the
+lever. The open question is why the S24 link ends up with `ssr:0`, and whether
+the phone supports SSR at all.
+
+**Consequence for this module:** disabling MAP MCE brings no BLE benefit. Its
+only observable effect is that the iOS "Messages" toggle disappears. The
+rationale given for it in this document, in the README and in the v2026.07.19.1
+release notes is incorrect, and whether to keep MAP disabled at all is now an
+open decision.
