@@ -410,3 +410,31 @@ Every removed file already exists in the head unit's stock image, so the module
 was shadowing them rather than adding anything; removal simply restores stock.
 After each stage BT reached `state: ON` with A2DP/HFP/AVRCP/PBAP connected and
 music, call audio and contacts all working.
+
+---
+
+## v2026.07.28.1 — ignore AVRCP absolute volume (stock behaviour)
+
+Field report: with the phone in normal (not silent) mode, an incoming Telegram
+notification "went off in the speakers at 100%", **and the music kept playing at
+full volume afterwards**. That persistence is the tell - the head unit's own
+volume level had been changed, not just one loud sound.
+
+Cause: the phone plays a notification at its *ringer* volume, which is typically
+near maximum, and iOS syncs that level over AVRCP as an absolute volume.
+AOSP's `AvrcpControllerStateMachine.setAbsVolume()` ignores only the very first
+such command and then applies every later one unconditionally -
+`setStreamVolume(STREAM_MUSIC, maxVol * absVol / 127, 1)`, with no clamp - so the
+head unit jumps to maximum and stays there.
+
+`persist.bluetooth.disableabsvol` does not help here: it is only consulted in the
+AVRCP *target* path, which never runs on this sink-only build.
+
+Fix: the call to `setStreamVolume` is made unreachable (one dex instruction, an
+`if-eq` guard turned into an unconditional branch), so remote absolute-volume
+commands are acknowledged but never applied. This matches the head unit's stock
+firmware, whose CSR stack does not implement absolute volume at all - zero such
+events in a stock capture.
+
+Trade-off: the phone's volume slider no longer changes head-unit volume. Use the
+head unit's own volume control, exactly as on stock.
